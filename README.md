@@ -280,7 +280,7 @@ python lp_model.py                          # all Paris, weekdays, base case
 ```
 
 All parameters are flags (`--day-type --p --h --v --Q --R --M --alpha --area --baseline
---fixed-returns --plan --input`). All Paris on weekdays: ~717k variables, 30 s to 2.5 min
+--fixed-returns --plan --input`). All Paris on weekdays: ~717k variables, about 10 s to 3 min (R = 3 km)
 on a laptop. The Gurobi log, run time and key numbers are printed; results go to
 `reports/lp/<run name>/` (`summary.json`, `x.csv` = night plan, `cells.csv` = per cell).
 The run name holds the data set (if not `base`), day type, p, R, alpha and flags,
@@ -322,6 +322,52 @@ python lp_model.py --fixed-returns
 # (g) map of the base-case weekday plan -> reports/lp/weekday_p3.5_R1.5_alpha0.5/net_flow_map.png
 python plot_plan_map.py --run reports/lp/weekday_p3.5_R1.5_alpha0.5
 ```
+
+#### Optional: hold-out test (weekdays, p = 3.50, alpha 0.5, R = 1.5)
+
+Checks whether a plan optimised on some weekdays still helps on other weekdays.
+The 10 base-case weekdays are split twice into 5 + 5 days, chronologically
+(early 02., 05., 07., 08., 09.10. / late 12.-16.10.) and alternating
+(odd 02., 07., 09., 13., 15.10. / even 05., 08., 12., 14., 16.10.); each half is
+used once as training and once as test set (4 tests). Each half gets its own
+inputs, so s, r and d of the test days are never seen by the training run.
+
+```bash
+D=../lime-data/daily
+python build_model_inputs.py --data-dir $D --first-day 2026-10-02 --last-day 2026-10-09 \
+    --exclude 2026-10-03,2026-10-04,2026-10-06 --out model_input_lp/ho_early
+python build_model_inputs.py --data-dir $D --first-day 2026-10-12 --last-day 2026-10-16 --out model_input_lp/ho_late
+python build_model_inputs.py --data-dir $D --first-day 2026-10-02 --last-day 2026-10-15 \
+    --exclude 2026-10-03,2026-10-04,2026-10-05,2026-10-06,2026-10-08,2026-10-10,2026-10-11,2026-10-12,2026-10-14 \
+    --out model_input_lp/ho_odd
+python build_model_inputs.py --data-dir $D --first-day 2026-10-05 --last-day 2026-10-16 \
+    --exclude 2026-10-06,2026-10-07,2026-10-09,2026-10-10,2026-10-11,2026-10-13,2026-10-15 \
+    --out model_input_lp/ho_even
+
+# per half: (a) no relocation and (c) optimum on these days
+for s in ho_early ho_late ho_odd ho_even; do
+    python lp_model.py --input model_input_lp/$s --baseline
+    python lp_model.py --input model_input_lp/$s
+done
+# (b) plan of the training half, fixed, on the test half
+run=weekday_p3.5_R1.5_alpha0.5
+python lp_model.py --input model_input_lp/ho_late  --plan reports/lp/ho_early_$run/x.csv
+python lp_model.py --input model_input_lp/ho_early --plan reports/lp/ho_late_$run/x.csv
+python lp_model.py --input model_input_lp/ho_even  --plan reports/lp/ho_odd_$run/x.csv
+python lp_model.py --input model_input_lp/ho_odd   --plan reports/lp/ho_even_$run/x.csv
+```
+
+Expected results (lost trips/day and cost/day in EUR on the test days):
+
+| Train -> test | (a) no relocation | (b) training plan | (c) optimum on test days | bikes moved (b) / (c) |
+|---|---|---|---|---|
+| early -> late | 11,436 / 40,028 | 10,692 / 38,770 | 8,877 / 32,987 | 1,760 / 2,499 |
+| late -> early | 12,516 / 43,807 | 12,285 / 44,703 | 10,388 / 37,945 | 2,223 / 2,067 |
+| odd -> even | 12,211 / 42,739 | 11,448 / 41,545 | 9,919 / 36,522 | 1,938 / 2,333 |
+| even -> odd | 11,224 / 39,285 | 10,596 / 38,683 | 9,073 / 33,322 | 2,066 / 2,057 |
+
+In (b), 119-307 planned bikes per test are not moved because their origin cell has
+fewer bikes at night on the test days (the run prints this).
 
 "Avoided per bike" in the report = (lost trips of the baseline - lost trips of the
 run) / bikes moved, both from `summary.json`.
