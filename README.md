@@ -280,7 +280,7 @@ python lp_model.py                          # all Paris, weekdays, base case
 ```
 
 All parameters are flags (`--day-type --p --h --v --Q --R --M --alpha --area --baseline
---fixed-returns --plan --input`). All Paris on weekdays: ~717k variables, 30 s to 2.5 min
+--fixed-returns --plan --input`). All Paris on weekdays: ~717k variables, about 10 s to 3 min (R = 3 km)
 on a laptop. The Gurobi log, run time and key numbers are printed; results go to
 `reports/lp/<run name>/` (`summary.json`, `x.csv` = night plan, `cells.csv` = per cell).
 The run name holds the data set (if not `base`), day type, p, R, alpha and flags,
