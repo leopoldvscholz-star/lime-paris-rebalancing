@@ -41,6 +41,7 @@ recommendation to rotate ids for privacy. Consequences and the workaround are in
 | `build_model_inputs.py` | LP inputs on a 300 m grid: night inventory s, returns r, empty-minute-corrected demand d per cell/hour/day, distances (see "Model"). |
 | `lp_model.py` | LP rebalancing model in gurobipy (see "Model"). |
 | `plot_plan_map.py` | map of a night plan: cells coloured by net inflow, arrondissement borders. |
+| `round_plan.py` | rounds a night plan `x.csv` to whole bikes, for evaluation with `lp_model.py --plan`. |
 | `merge_day.py` | merges one day of per-snapshot files into a single daily csv.gz (stdlib). |
 | `deploy/` | systemd unit + setup script for a small Linux VM; bootstrap script for the `data` branch. |
 
@@ -394,6 +395,56 @@ and costs should not):
 54,657 / 56,263 / 57,255 / 57,907, weekends 51,554 / 54,372 / 56,182 / 57,320 / 58,034.
 In (e), 230 of the 2,090 planned bikes are not moved because their origin cell has
 fewer bikes at night on the disruption days (the run prints this).
+
+#### Optional: rounding the night plan to whole bikes (weekdays, p = 3.50)
+
+The LP returns fractional x[i,j]. `round_plan.py` rounds each x[i,j] of the base-case
+weekday plan to the nearest whole bike (pairs that round to 0 are dropped); the
+rounded plan is then evaluated with `--plan` (x fixed, only the day part is solved).
+
+```bash
+python lp_model.py                       # base-case weekday plan, if not run yet
+python round_plan.py --plan reports/lp/weekday_p3.5_R1.5_alpha0.5/x.csv \
+    --out reports/lp/rounded_weekday_p3.5
+python lp_model.py --plan reports/lp/rounded_weekday_p3.5/x.csv
+# -> reports/lp/weekday_p3.5_R1.5_alpha0.5_plan-rounded_weekday_p3.5/
+```
+
+Expected results: `round_plan.py` prints `pairs 946 -> 754, bikes 2,089.6 -> 2,072`.
+
+| Run | Lost trips/day | Bikes moved | Mean dist. | Cost/day (EUR) |
+|---|---|---|---|---|
+| LP optimum (fractional) | 10,024 | 2,090 | 1.12 km | 36,685 |
+| rounded plan | 10,066 | 2,050 | 1.12 km | 36,804 |
+
+Rounding costs +43 lost trips/day and +119 EUR/day (+0.3 %). Of the 2,072 planned
+bikes, 22 are not moved because s[i] is an average over the days and the rounded
+plan sends slightly more than s[i] from a few cells (the run prints this).
+
+#### Optional: base case with 06.10. (11 weekdays)
+
+Same as Step 1 + (b), but the demonstration day 06.10. is kept in, so the weekday
+set has 11 days instead of 10.
+
+```bash
+python build_model_inputs.py --data-dir ../lime-data/daily \
+    --first-day 2026-10-02 --last-day 2026-10-16 --out model_input_lp/with1006
+python lp_model.py --input model_input_lp/with1006 --baseline
+python lp_model.py --input model_input_lp/with1006
+# -> reports/lp/with1006_weekday_p3.5_R1.5_alpha0.5{_baseline,}/
+```
+
+Expected results (`model_input_lp/with1006/summary.md`: 11 complete weekdays,
+rentals/day 57,381, corrected demand/day 70,154):
+
+| Run | Lost trips/day | Bikes moved | Mean dist. | Cost/day (EUR) |
+|---|---|---|---|---|
+| with 06.10., baseline | 13,004 | 0 | - | 45,514 |
+| with 06.10., p = 3.50 | 10,941 | 2,115 | 1.12 km | 39,917 |
+| without 06.10. (base case), baseline / p = 3.50 | 12,082 / 10,024 | 0 / 2,090 | - / 1.12 km | 42,289 / 36,685 |
+
+With 06.10. the plan avoids 2,063 lost trips/day (base case: 2,059) with 26 more
+bikes moved, so the base-case result does not depend on leaving that day out.
 
 ## Politeness
 
